@@ -43,7 +43,7 @@ def main():
     batch_size = 1000
     messages_buffer = []
 
-    for method_frame, properties, body in channel.queue_declare(queue=QUEUE_NAME, durable=True):
+    for method_frame, properties, body in channel.consume(queue=QUEUE_NAME, auto_ack=False):
         messages_buffer.append((channel, method_frame, properties, body))
         
         if len(messages_buffer) >= batch_size:
