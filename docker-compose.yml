@@ -1,0 +1,216 @@
+services:
+
+#RabbitMQ Services
+  rabbitmq:
+    image: rabbitmq:3-management
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"      # Standard Port für AMQP (Producer/Consumer)
+      - "15672:15672"    # Management UI
+    environment:
+      RABBITMQ_DEFAULT_USER: stockmarket
+      RABBITMQ_DEFAULT_PASS: supersecret123
+    networks:
+      - mongodb-network
+    restart: always
+
+#Stock-Puvlisher Service
+  stock-publisher:
+    build:
+      context: ./stock-publisher
+    container_name: stock-publisher
+    environment:
+      RABBITMQ_URL: amqp://stockmarket:supersecret123@rabbitmq:5672/
+      TICKER_INTERVAL: 1000       # Wie häufig neue Datensätze generiert werden (Millisekunden)
+      MONGODB_URL: mongodb://mongodb-primary:27017/
+    depends_on:
+      - rabbitmq
+      - mongodb-primary
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "http://localhost:8080/health", "||", "exit", "1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+    networks:
+      - mongodb-network
+    restart: always
+
+#MongoDB Setup
+
+  mongodb-primary:
+    image: mongo
+    container_name: mongodb-primary
+    command: mongod --replSet rs0 --bind_ip_all --noauth
+    ports:
+      - "27017:27017"
+    networks:
+      - mongodb-network
+    volumes:
+      - mongodb-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
+      interval: 10s
+      retries: 5
+      start_period: 20s
+      timeout: 5s
+    restart: always
+
+  mongodb-secondary:
+    image: mongo
+    container_name: mongodb-secondary
+    command: mongod --replSet rs0 --bind_ip_all --noauth
+    networks:
+      - mongodb-network
+    depends_on:
+      mongodb-primary:
+        condition: service_healthy
+    restart: always
+
+  mongodb-arbiter:
+    image: mongo
+    container_name: mongodb-arbiter
+    command: mongod --replSet rs0 --bind_ip_all --noauth
+    networks:
+      - mongodb-network
+    depends_on:
+      mongodb-primary:
+        condition: service_healthy
+    restart: always
+
+  mongodb-setup:
+    image: mongo
+    container_name: mongodb-setup
+    depends_on:
+      mongodb-primary:
+        condition: service_healthy
+    networks:
+      - mongodb-network
+    command: >
+      mongosh --host mongodb-primary:27017 --eval '
+        config = {
+          "_id" : "rs0",
+          "members" : [
+            {"_id" : 0, "host" : "mongodb-primary"},
+            {"_id" : 1, "host" : "mongodb-secondary"},
+            {"_id" : 2, "host" : "mongodb-arbiter"}
+          ]
+        };
+        rs.initiate(config);
+      '
+    restart: always
+ 
+ #Frontend Services
+
+  stock-liveview-1:
+    build:
+      context: ./stock-liveview
+    container_name: stock-liveview-1
+    ports:
+      - "3000:3000"
+    environment:
+      MONGODB_URL: mongodb://mongodb-primary:27017/
+    depends_on:
+      - mongodb-primary
+    networks:
+      - mongodb-network
+    restart: always
+
+  stock-liveview-2:
+    build:
+      context: ./stock-liveview
+    container_name: stock-liveview-2
+    ports:
+      - "3001:3000"
+    environment:
+      MONGODB_URL: mongodb://mongodb-primary:27017/
+    depends_on:
+      - mongodb-primary
+    networks:
+      - mongodb-network
+    restart: always
+
+#Loadbalancer Service
+
+
+  nginx:
+    image: nginx:latest
+    container_name: nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf
+    depends_on:
+      - stock-liveview-1
+      - stock-liveview-2
+    networks:
+      - mongodb-network
+    restart: always
+
+#Consumer Service
+
+  consumer-aapl:
+    build:
+      context: ./consumer
+    container_name: consumer-aapl
+    environment:
+      RABBITMQ_URL: amqp://stockmarket:supersecret123@rabbitmq:5672/
+      QUEUE_NAME: AAPL
+      MONGODB_URL: mongodb://mongodb-primary:27017,mongodb-secondary:27017,mongodb-arbiter:27017/?replicaSet=rs0
+    depends_on:
+      - mongodb-setup
+      - rabbitmq
+      - mongodb-primary
+      - mongodb-secondary
+      - mongodb-arbiter
+      - stock-publisher
+    networks:
+      - mongodb-network
+    restart: always
+    command: python consumer.py
+
+  consumer-msft:
+    build:
+      context: ./consumer
+    container_name: consumer-msft
+    environment:
+      RABBITMQ_URL: amqp://stockmarket:supersecret123@rabbitmq:5672/
+      QUEUE_NAME: MSFT
+      MONGODB_URL: mongodb://mongodb-primary:27017,mongodb-secondary:27017,mongodb-arbiter:27017/?replicaSet=rs0
+    depends_on:
+      - mongodb-setup
+      - rabbitmq
+      - mongodb-primary
+      - mongodb-secondary
+      - mongodb-arbiter
+      - stock-publisher
+    networks:
+      - mongodb-network
+    restart: always
+    command: python consumer.py
+
+  consumer-tsla:
+    build:
+      context: ./consumer
+    container_name: consumer-tsla
+    environment:
+      RABBITMQ_URL: amqp://stockmarket:supersecret123@rabbitmq:5672/
+      QUEUE_NAME: TSLA
+      MONGODB_URL: mongodb://mongodb-primary:27017,mongodb-secondary:27017,mongodb-arbiter:27017/?replicaSet=rs0
+    depends_on:
+      - mongodb-setup
+      - rabbitmq
+      - mongodb-primary
+      - mongodb-secondary
+      - mongodb-arbiter
+      - stock-publisher
+    networks:
+      - mongodb-network
+    restart: always
+    command: python consumer.py
+networks:
+  mongodb-network:
+    driver: bridge
+
+volumes:
+  mongodb-data:
+    driver: local

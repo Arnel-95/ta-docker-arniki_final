@@ -1,1 +1,2 @@
-# ta-docker-arniki_final
+# docker-ta-teko
+Repository für die Transferarbeit in Microservices
