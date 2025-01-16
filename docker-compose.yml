@@ -21,7 +21,7 @@ services:
     container_name: stock-publisher
     environment:
       RABBITMQ_URL: amqp://stockmarket:supersecret123@rabbitmq:5672/
-      TICKER_INTERVAL: 1000       # Wie häufig neue Datensätze generiert werden (Millisekunden)
+      TICKER_INTERVAL: 10       # Wie häufig neue Datensätze generiert werden (Millisekunden)
       MONGODB_URL: mongodb://mongodb-primary:27017/
     depends_on:
       - rabbitmq

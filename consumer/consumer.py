@@ -3,6 +3,10 @@ import pika
 import json
 from pymongo import MongoClient
 
+#Sleep for 1 Minute
+import time
+time.sleep(60)
+
 RABBITMQ_URL = os.getenv("RABBITMQ_URL", "amqp://guest:guest@localhost:5672/")
 QUEUE_NAME = os.getenv("QUEUE_NAME", "AAPL")
 MONGODB_URL = os.getenv("MONGODB_URL", "mongodb://localhost:27017/")
@@ -35,15 +39,13 @@ def process_messages(messages):
             upsert=True
         )
 
-    # Ack an RabbitMQ
-    for _, method, _, _ in messages:
-        channel.basic_ack(delivery_tag=method.delivery_tag)
+
 
 def main():
     batch_size = 1000
     messages_buffer = []
 
-    for method_frame, properties, body in channel.consume(queue=QUEUE_NAME, auto_ack=False):
+    for method_frame, properties, body in channel.consume(queue=QUEUE_NAME, auto_ack=True):
         messages_buffer.append((channel, method_frame, properties, body))
         
         if len(messages_buffer) >= batch_size:
